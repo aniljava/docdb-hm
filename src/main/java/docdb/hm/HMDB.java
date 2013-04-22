@@ -12,123 +12,139 @@ import docdb.DocDB;
 import docdb.KV;
 
 public class HMDB extends DocDB implements KV {
-	
-	
-	public HMDB(String fileName) {
-		this.fileName = fileName;		
-		try{
-			client = new HashMap<String, String>();
 
-			if(new File(fileName).exists()){
-				//Read all.
-				DataInputStream in = new DataInputStream(new FileInputStream(fileName));
-				/**
-				 * Data Format:
-				 * 1byte = first bit [0:add/1remove], 2nd bit[compression todo]
-				 * 1byte = [key end]
-				 * 4byte = [data end]
-				 */
-				
-				int i ;		
-				while((i = in.read()) != -1){
-					int rw = i&1;
-					int keysize = in.read();
-					byte key[] = new byte[keysize];
-					in.readFully(key);
-					
-					if(rw == 0 ){ // ADD
-						byte value[] = null;
-						int length = in.readInt();
-						
-						value = new byte[length];				
-						in.readFully(value);
-						client.put(str(key), str(value));
-					}else{
-						client.remove(key);
-					}
-				}
-				in.close();
-			}
-			out = new DataOutputStream(new FileOutputStream(fileName,true));
-			super.setKV(this);
-		}catch(Exception ex){
-			throw new RuntimeException(ex);
-		}
-	}
+    public HMDB(String fileName) {
+        this.fileName = fileName;
+        boolean optimize = false;
 
-	public Map<String, String>	client;
-	private DataOutputStream out; 
-	private String fileName ;
+        if (fileName.indexOf('?') != -1) {
+            if (fileName.indexOf("optimize") != -1) optimize = true;
+            this.fileName = fileName.substring(0, fileName.indexOf('?'));
+        }
 
-	public byte[] get(byte[] key) {
-		String str = client.get(str(key));
-		if(str == null)return null;
-		return str.getBytes();
-	}
+        try {
+            client = new HashMap<String, String>();
 
-	public void set(byte[] key, byte[] value) {
-		if(value == null ) return ;
-		if(str(value).equals(str(get(key))))return; //Nothing to do.
-		
-		client.put(str(key), str(value));
-		try{
-			out.writeByte(0);
-			out.writeByte(key.length);
-			out.write(key);
-			out.writeInt(value.length);
-			out.write(value);
-		}catch(Exception ex){
-			throw new RuntimeException(ex);
-		}
-	}
+            if (new File(this.fileName).exists()) {
+                DataInputStream in = new DataInputStream(new FileInputStream(this.fileName));
+                int i;
+                while ((i = in.read()) != -1) {
+                    int rw = i & 1;
+                    int keysize = in.read();
+                    byte key[] = new byte[keysize];
+                    in.readFully(key);
 
-	public void remove(byte[] key) {
-		
-		if(get(key) == null) return; // does not exist
-		
-		client.remove(dbKey(key));
-		try{
-			out.writeByte(1);
-			out.writeByte(key.length);
-			out.write(key);
-		}catch(Exception ex){
-			throw new RuntimeException(ex);
-		}
-		
-		
-	}
+                    if (rw == 0) { // ADD
+                        byte value[] = null;
+                        int length = in.readInt();
 
-	private byte[] dbKey(final byte[] key) {
-		return key;
-	}
+                        value = new byte[length];
+                        in.readFully(value);
+                        client.put(str(key), str(value));
 
-	private String str(byte data[]) {
-		if(data == null) return null;
-		return new String(data);
-	}
+                    } else {
+                        client.remove(key);
+                    }
+                }
+                in.close();
+            }
 
-	public Object getKV() {
-		return client;
-	}
+            if (optimize) optimize();
 
-	public void close(){
-		try{
-			out.close();			
-		}catch(Exception ex){
-			throw new RuntimeException(ex);
-		}
-		
-	}
-	
-	public void clear(){
-		try{
-			out.close();
-			out = new DataOutputStream(new FileOutputStream(fileName,false));
-		}catch(Exception ex){
-			throw new RuntimeException(ex);
-		}
-	}
+            out = new DataOutputStream(new FileOutputStream(this.fileName, true));
+            super.setKV(this);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
 
+    public Map<String, String> client;
+    private DataOutputStream   out;
+    private String             fileName;
 
+    public void optimize() throws Exception {
+
+        out = new DataOutputStream(new FileOutputStream(fileName, false));
+        for (String key : client.keySet()) {
+
+            byte bkey[] = key.getBytes();
+            byte value[] = client.get(key).getBytes();
+
+            out.writeByte(0); // add
+            out.writeByte(bkey.length);
+            out.write(bkey);
+            out.writeInt(value.length);
+            out.write(value);
+
+        }
+        out.flush();
+        out.close();
+    }
+
+    public byte[] get(byte[] key) {
+        String str = client.get(str(key));
+        if (str == null) return null;
+        return str.getBytes();
+    }
+
+    public void set(byte[] key, byte[] value) {
+        if (value == null) return;
+        if (str(value).equals(str(get(key)))) return; // Nothing to do.
+
+        client.put(str(key), str(value));
+        try {
+            out.writeByte(0);
+            out.writeByte(key.length);
+            out.write(key);
+            out.writeInt(value.length);
+            out.write(value);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
+    public void remove(byte[] key) {
+        byte[] str = get(key);
+        if (str == null) return;
+
+        client.remove(str(key));
+
+        try {
+            out.writeByte(1);
+            out.writeByte(key.length);
+            out.write(key);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+
+    }
+
+    private String str(byte data[]) {
+        if (data == null) return null;
+        return new String(data);
+    }
+
+    public Object getKV() {
+        return client;
+    }
+
+    public void close() {
+        try {
+            out.close();
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+
+    }
+
+    public void clear() {
+        try {
+            out.close();
+            client.clear();
+            out = new DataOutputStream(new FileOutputStream(fileName, false));
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
 
 }
